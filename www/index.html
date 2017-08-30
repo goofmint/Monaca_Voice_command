@@ -1,0 +1,187 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta http-equiv="Content-Security-Policy" content="default-src * data: gap: https://ssl.gstatic.com; style-src * 'unsafe-inline'; script-src * 'unsafe-inline' 'unsafe-eval'">
+  <script src="components/loader.js"></script>
+  <script src="lib/onsenui/js/onsenui.min.js"></script>
+
+  <link rel="stylesheet" href="components/loader.css">
+  <link rel="stylesheet" href="lib/onsenui/css/onsenui.css">
+  <link rel="stylesheet" href="lib/onsenui/css/onsen-css-components.css">
+  <link rel="stylesheet" href="css/style.css">
+
+  <script>
+  	// Google Cloud Speech APIで使うAPIキー
+  	var key = "API_KEY";
+    
+    // docomoの発話理解APIのキー
+    var api_key = "API_KEY";
+    
+    ons.ready(function() {
+      var app = {
+      	// ファイルを読み込むためのオブジェクトです
+      	reader: new FileReader(),
+      	
+      	// キャプチャ成功時のコールバックです
+				success: function(files) {
+					var file = files[0];
+    			$("#audio").attr("src", file.fullPath);
+    			
+    			// ファイルを読み込んだ時のコールバックを指定
+    			app.reader.onloadend = app.load_file;
+    			
+    			// Fileオブジェクトを作成します
+    			audioFile = new window.File(
+    				file.name, 
+    				file.localURL,
+    				file.type,
+    				file.lastModifiedDate,
+    				file.size
+    			);
+    			// ファイルを読み込みます（Base64で取得できます）
+					app.reader.readAsDataURL(audioFile);
+    		},
+    		
+        log: function(text) {
+          var original = $('#log').val();
+          $('#log').val(`${original}\n${text}`);
+        },
+        
+    		// ファイルを読み込むと呼ばれるコールバック
+    		load_file: function() {
+          app.log('音声ファイルが読み込まれました');
+          
+    			// audio/wav;base64,aaa... といった形式で取得
+    			// されるので、,以降だけにします
+					var ary = app.reader.result.split(",");
+					// Google Cloud Speech APIに投げるデータフォーマットを作成
+					var json = {
+						"config": {
+								"encoding":"LINEAR16",
+								"sample_rate": 44100,
+								"language_code": "ja_JP"
+							},
+							"audio": {
+								"content": ary[1]
+							}
+    			};
+    			// 音声認識処理を実行します
+    			app.voice_recognition(json);
+    		},
+    		
+        //
+        text_recognization: function(text) {
+          var json={
+            "projectKey": "OSU",
+            "appInfo": {
+              "appName": "hoge_app",
+              "appKey": "hoge_app01"
+            },
+            "clientVer": "1.0.0",
+            "dialogMode": "off",
+            "language": "ja",
+            "userId": "1",
+            "location": {
+              "lat": 0,
+              "lon": 0
+            },
+            "userUtterance": {
+              "utteranceText": text
+            }
+          }
+          app.log('テキスト認識開始');
+          var url = `https://api.apigw.smt.docomo.ne.jp/sentenceUnderstanding/v1/task?APIKEY=${api_key}`;
+          $.ajax({
+            type: 'POST',
+            url: url,
+            data: JSON.stringify(json),
+            dataType:'json',
+            contentType: 'application/json'
+          })
+          .then(function(data) {
+            app.action_defined(data.extractedWords);
+          })
+        },
+        
+        // アクションを実行します
+        // 今回はメモを出すだけです
+        action: function(action, what) {
+          if (action === 'memo') {
+            $('#result').val(what);
+          }
+        },
+        
+        // 実行するアクションを特定します
+        action_defined: function(words) {
+          for (var i = 0; i < words.length; i++) {
+            var word = words[i];
+            if (word.wordsType.indexOf('memoBody') >= 0) {
+              app.action('memo', word.wordsValue);
+            }
+          }
+        },
+        
+    		// Google Cloud Speech APIをコールします
+    		voice_recognition: function(json) {
+          app.log('音声認識開始');
+          try {
+        		// AjaxでPOST処理
+  					$.ajax({
+  					    type: 'POST',
+  					    url: 'https://speech.googleapis.com/v1beta1/speech:syncrecognize?key=' + key,
+  					    data: JSON.stringify(json),
+  					    dataType:'json',
+  					    contentType: 'application/json'
+  					}).done(function(data) {
+              app.log('音声認識成功');
+  						// 処理結果をテキストエリアに表示
+              var text = data.results[0].alternatives[0].transcript;
+              app.log(text);
+              
+              app.text_recognization(text);
+            });
+            
+          }catch(e){
+            app.log(e);
+          }
+  			},
+  			
+  			// キャプチャ失敗時のコールバックです
+    		error: function(error) {
+    			app.log('音声認識失敗');
+          app.log(error);
+    			console.log(error);
+    		}
+      };
+      
+      $("#capture").on("click", function() {
+      	navigator.device.capture.captureAudio(app.success, app.error, {limit:15});
+        
+      });
+      
+    });
+  </script>
+</head>
+<body>
+	<ons-page>
+		<ons-toolbar>
+	    <div class="center">音声認識</div>
+	  </ons-toolbar>
+
+	  <section style="padding: 8px">
+	    <p></p><br><br>
+	    <ons-button id="capture" modifier="large">音声キャプチャ</ons-button>
+	    <p></p>
+	    <p><audio id="audio" controls></audio></p>
+      結果：
+      <textarea id="result" class="textarea" rows="10"></textarea>
+      ログ:
+	    <textarea id="log" class="textarea" rows="10"></textarea>
+	  </section>
+
+	
+</ons-page>
+</body>
+</html>
